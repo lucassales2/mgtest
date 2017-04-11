@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Desafio LuizaLabs</string>
+    <string name="spref_metric">metric</string>
+    <string name="google_maps_api_key"></string>
+    <string name="change_unit_fahrenheit">ºF</string>
+    <string name="change_unit_celcius">ºC</string>
+    <string name="change_view">change view</string>
+    <string name="connection_error_message">Erro, verifique sua conexão com a internet</string>
+</resources>
