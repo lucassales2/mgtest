@@ -1,0 +1,15 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/item_change_unit"
+        android:title="@string/change_unit_fahrenheit"
+        app:showAsAction="always"/>
+
+    <item
+        android:id="@+id/item_change_view"
+        android:title="@string/change_view"
+        android:icon="@drawable/ic_map"
+        app:showAsAction="always" />
+
+
+</menu>

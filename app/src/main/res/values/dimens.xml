@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="item_horizontal_margin">12dp</dimen>
+    <dimen name="item_vertical_margin">6dp</dimen>
+    <dimen name="item_padding">16dp</dimen>
+    <dimen name="item_image_size">48dp</dimen>
+    <dimen name="textsize_large">28sp</dimen>
+    <dimen name="textsize_normal">20sp</dimen>
+</resources>
