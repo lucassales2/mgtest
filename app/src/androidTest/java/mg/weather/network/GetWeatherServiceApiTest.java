@@ -17,8 +17,6 @@ public class GetWeatherServiceApiTest {
         testObserver.assertNoErrors();
         testObserver.assertComplete();
 
-
-
     }
 
 }

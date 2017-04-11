@@ -1,12 +1,9 @@
 package mg.weather.ui;
 
 import android.Manifest;
-import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
-import android.location.Criteria;
 import android.location.Location;
-import android.location.LocationManager;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.support.annotation.NonNull;
@@ -14,92 +11,51 @@ import android.support.annotation.Nullable;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.Fragment;
 import android.support.v7.app.AppCompatActivity;
-import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.view.View;
-import android.widget.ImageView;
-import android.widget.TextView;
+import android.widget.Toast;
 
-import com.bumptech.glide.Glide;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.api.GoogleApiClient;
 import com.google.android.gms.location.LocationServices;
-import com.google.android.gms.maps.CameraUpdate;
-import com.google.android.gms.maps.CameraUpdateFactory;
-import com.google.android.gms.maps.GoogleMap;
-import com.google.android.gms.maps.OnMapReadyCallback;
-import com.google.android.gms.maps.SupportMapFragment;
-import com.google.android.gms.maps.model.BitmapDescriptorFactory;
-import com.google.android.gms.maps.model.LatLng;
-import com.google.android.gms.maps.model.Marker;
-import com.google.android.gms.maps.model.MarkerOptions;
 import com.tbruyelle.rxpermissions2.RxPermissions;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
+import io.reactivex.Observable;
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.functions.Consumer;
-import io.reactivex.functions.Function;
-import io.reactivex.schedulers.Schedulers;
+import mg.weather.AppController;
+import mg.weather.AppControllerListener;
 import mg.weather.R;
-import mg.weather.Utility;
-import mg.weather.network.GetWeatherServiceApi;
-import mg.weather.network.ServiceGenerator;
-import mg.weather.network.dto.CityDto;
-import mg.weather.network.response.NearbyCitiesResponse;
-import mg.weather.ui.viewmodel.CityWeatherViewModel;
 
 public class MainActivity extends AppCompatActivity implements GoogleApiClient.ConnectionCallbacks,
-        GoogleApiClient.OnConnectionFailedListener, OnMapReadyCallback, GoogleMap.InfoWindowAdapter, GoogleMap.OnCameraMoveListener {
+        GoogleApiClient.OnConnectionFailedListener {
 
-    private static final String ARG_LIST = "list";
     private GoogleApiClient mGoogleApiClient;
-    private ArrayList<CityWeatherViewModel> cityWeatherViewModels;
-    private Map<Long, Marker> markerMap = new HashMap<>();
-    private Location currentLocation;
-    private Location mapLocation;
-    private SupportMapFragment mapFragment;
-    private GoogleMap mGoogleMap;
+    private boolean fragmentsInitiated = false;
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        mapFragment = (SupportMapFragment) getSupportFragmentManager()
-                .findFragmentById(R.id.map);
-        mapFragment.getMapAsync(this);
 
-        if (savedInstanceState != null) {
-            cityWeatherViewModels = savedInstanceState.getParcelableArrayList(ARG_LIST);
-            if (getSupportFragmentManager().findFragmentByTag(WeatherListFragment.TAG) == null) {
-                getSupportFragmentManager()
-                        .beginTransaction()
-                        .replace(R.id.list_fragment, WeatherListFragment.newInstance(cityWeatherViewModels), WeatherListFragment.TAG)
-                        .commit();
-            }
-
-        } else {
-            getSupportFragmentManager().beginTransaction().hide(mapFragment).commit();
-        }
-
-
-        RxPermissions rxPermissions = new RxPermissions(this);
-        rxPermissions
-                .request(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)
-                .subscribe(new Consumer<Boolean>() {
-                    @Override
-                    public void accept(Boolean granted) throws Exception {
-                        if (!granted) {
-                            finish();
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+                ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            RxPermissions rxPermissions = new RxPermissions(this);
+            rxPermissions
+                    .request(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION)
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .subscribe(new Consumer<Boolean>() {
+                        @Override
+                        public void accept(Boolean granted) throws Exception {
+                            if (!granted) {
+                                finish();
+                            } else {
+                                connectFragments();
+                            }
                         }
-                    }
-                });
-
+                    });
+        }
         if (mGoogleApiClient == null) {
             mGoogleApiClient = new GoogleApiClient.Builder(MainActivity.this)
                     .addConnectionCallbacks(MainActivity.this)
@@ -142,7 +98,8 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
 
             case R.id.item_change_view:
                 Fragment listFragment = getSupportFragmentManager().findFragmentByTag(WeatherListFragment.TAG);
-                if (listFragment != null) {
+                Fragment mapFragment = getSupportFragmentManager().findFragmentByTag(WeatherMapFragment.TAG);
+                if (listFragment != null && mapFragment != null) {
                     if (mapFragment.isHidden()) {
                         item.setIcon(R.drawable.ic_list);
                         getSupportFragmentManager().beginTransaction().show(mapFragment).commit();
@@ -160,57 +117,46 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     }
 
     @Override
-    protected void onSaveInstanceState(Bundle outState) {
-        super.onSaveInstanceState(outState);
-        outState.putParcelableArrayList(ARG_LIST, cityWeatherViewModels);
+    public void onConnected(@Nullable Bundle bundle) {
+        connectFragments();
     }
 
-    @Override
-    public void onConnected(@Nullable Bundle bundle) {
-        if (cityWeatherViewModels != null ||
-                (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-                        ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)) {
+    private void connectFragments() {
+        if (fragmentsInitiated || (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+                ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)) {
             return;
         }
 
-        currentLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
+        fragmentsInitiated = true;
 
-        if (currentLocation != null) {
-            getWeatherList(currentLocation);
+        Location currentLocation = LocationServices.FusedLocationApi.getLastLocation(mGoogleApiClient);
+        if (getSupportFragmentManager().findFragmentByTag(WeatherListFragment.TAG) == null) {
+            getSupportFragmentManager()
+                    .beginTransaction()
+                    .replace(R.id.list_fragment, WeatherListFragment.newInstance(currentLocation), WeatherListFragment.TAG)
+                    .commit();
+
         }
-
-    }
-
-    private void getWeatherList(Location location) {
-        if (location != null) {
-             ServiceGenerator.getApiService(GetWeatherServiceApi.class)
-                    .getNearbyCitiesWeather(location.getLatitude(), location.getLongitude(), 50)
-                    .map(new Function<NearbyCitiesResponse, ArrayList<CityWeatherViewModel>>() {
-                        @Override
-                        public ArrayList<CityWeatherViewModel> apply(NearbyCitiesResponse nearbyCitiesResponse) throws Exception {
-                            ArrayList<CityWeatherViewModel> list = new ArrayList<>();
-                            for (CityDto cityDto : nearbyCitiesResponse.getList()) {
-                                list.add(new CityWeatherViewModel(cityDto));
-                            }
-                            return list;
-                        }
-                    })
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(AndroidSchedulers.mainThread())
-                    .subscribe(new Consumer<ArrayList<CityWeatherViewModel>>() {
-                        @Override
-                        public void accept(ArrayList<CityWeatherViewModel> cityWeatherViewModels) throws Exception {
-                            if (getSupportFragmentManager().findFragmentByTag(WeatherListFragment.TAG) == null) {
-                                MainActivity.this.cityWeatherViewModels = cityWeatherViewModels;
-                                getSupportFragmentManager()
-                                        .beginTransaction()
-                                        .replace(R.id.list_fragment, WeatherListFragment.newInstance(cityWeatherViewModels), WeatherListFragment.TAG)
-                                        .commit();
-                            }
-                            updateMap(cityWeatherViewModels);
-                        }
-                    });
+        if (getSupportFragmentManager().findFragmentByTag(WeatherMapFragment.TAG) == null) {
+            WeatherMapFragment mapFragment = WeatherMapFragment.newInstance(currentLocation);
+            getSupportFragmentManager()
+                    .beginTransaction()
+                    .replace(R.id.map_fragment, mapFragment, WeatherMapFragment.TAG)
+                    .commit();
+            getSupportFragmentManager().beginTransaction().hide(mapFragment).commit();
         }
+        AppController.getInstance().getWeatherList(getApplicationContext(), currentLocation, 50, new AppControllerListener() {
+            @Override
+            public void onError(Throwable t) {
+                Observable.just(t).observeOn(AndroidSchedulers.mainThread()).subscribe(new Consumer<Throwable>() {
+                    @Override
+                    public void accept(Throwable throwable) throws Exception {
+                        Toast.makeText(MainActivity.this, R.string.connection_error_message, Toast.LENGTH_SHORT).show();
+                    }
+                });
+
+            }
+        });
     }
 
     @Override
@@ -231,78 +177,5 @@ public class MainActivity extends AppCompatActivity implements GoogleApiClient.C
     protected void onStop() {
         mGoogleApiClient.disconnect();
         super.onStop();
-    }
-
-    @Override
-    public void onMapReady(GoogleMap googleMap) {
-        this.mGoogleMap = googleMap;
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-                ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
-        LocationManager locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-        Location location = locationManager.getLastKnownLocation(locationManager.getBestProvider(new Criteria(), false));
-        if (location != null) {
-            mGoogleMap.setMyLocationEnabled(true);
-            CameraUpdate cameraUpdate = CameraUpdateFactory.newLatLngZoom(new LatLng(location.getLatitude(), location.getLongitude()), 10);
-            mGoogleMap.moveCamera(cameraUpdate);
-        }
-        mGoogleMap.setOnCameraMoveListener(this);
-        mGoogleMap.setMaxZoomPreference(10);
-        mGoogleMap.setMinZoomPreference(10);
-        if (cityWeatherViewModels != null)
-            updateMap(cityWeatherViewModels);
-
-    }
-
-    private void updateMap(List<CityWeatherViewModel> cityWeatherViewModels) {
-
-        mGoogleMap.setInfoWindowAdapter(this);
-        for (CityWeatherViewModel cityWeatherViewModel : cityWeatherViewModels) {
-            if (markerMap.containsKey(cityWeatherViewModel.getId())) {
-                markerMap.get(cityWeatherViewModel.getId()).setTag(cityWeatherViewModel);
-            } else {
-                LatLng latLng = new LatLng(cityWeatherViewModel.getLatitude(), cityWeatherViewModel.getLongitude());
-                Marker marker = mGoogleMap
-                        .addMarker(new MarkerOptions()
-                                .position(latLng)
-                                .title(cityWeatherViewModel.getName())
-                                .icon(BitmapDescriptorFactory.defaultMarker()));
-                marker.setTag(cityWeatherViewModel);
-                markerMap.put(cityWeatherViewModel.getId(), marker);
-            }
-        }
-    }
-
-    @Override
-    public View getInfoWindow(Marker marker) {
-        return null;
-    }
-
-    @Override
-    public View getInfoContents(Marker marker) {
-        View view = LayoutInflater.from(this).inflate(R.layout.marker_layout, null, false);
-        CityWeatherViewModel viewModel = (CityWeatherViewModel) marker.getTag();
-        TextView currentMarkerTextView = (TextView) view.findViewById(R.id.text_marker_temp);
-        boolean aBoolean = PreferenceManager.getDefaultSharedPreferences(this).getBoolean(getString(R.string.spref_metric), true);
-        Double temp = aBoolean ? viewModel.getTemp() : Utility.celsiusToFahrenheit(viewModel.getTemp());
-        currentMarkerTextView.setText(String.format("%dº", temp.intValue()));
-        ImageView imageView = (ImageView) view.findViewById(R.id.img_marker);
-        Glide.with(this).load(viewModel.getIconUrl()).into(imageView);
-        return view;
-    }
-
-    @Override
-    public void onCameraMove() {
-        Location cameraLocation = new Location("");
-        LatLng target = mGoogleMap.getCameraPosition().target;
-        cameraLocation.setLatitude(target.latitude);
-        cameraLocation.setLongitude(target.longitude);
-        if (Utility.isBetterLocation(cameraLocation, mapLocation, 180000)) {
-            mapLocation = cameraLocation;
-            getWeatherList(mapLocation);
-        }
-
-
     }
 }

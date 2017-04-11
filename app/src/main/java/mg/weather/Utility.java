@@ -20,11 +20,8 @@ public class Utility {
         long timeDelta = location.getTime() - currentBestLocation.getTime();
         boolean isSignificantlyNewer = timeDelta > updateRate;
 
-
-
-
         return isSignificantlyNewer ||
-                location.distanceTo(currentBestLocation) >= 3000;
+                location.distanceTo(currentBestLocation) >= 5000;
 
     }
 }
